@@ -1,0 +1,16 @@
+.container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: center;
+    padding: 20px;
+}
+.date, .clock, .todo-title {
+    flex: 1;
+}
+.date {
+    text-align: left;
+}
+.clock {
+    text-align: right;
+}
