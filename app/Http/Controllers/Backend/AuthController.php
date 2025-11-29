@@ -7,6 +7,7 @@ use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Mail\VerificationMail;
 use App\Mail\ResetPasswordMail;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -21,26 +22,37 @@ class AuthController extends Controller
     }
     // public function doRegister(Request $request)
     // {
-    //     dd($request->all());
     //     $validator = Validator::make($request->all(), [
-    //         'name' => 'required|string|max: 255',
+    //         'name' => 'required|string|max:255',
     //         'email' => 'required|email|unique:users,email',
     //         'password' => 'required|min:6',
     //         'confirm_password' => 'required|same:password',
     //     ]);
     //     if ($validator->fails()) {
-    //         return redirect()->back()->with('errors', "Invalid credentials");
-    //         // return redirect()->back()->with('errors', array('message' => $validator));
-    //     } else {
-    //         $data = $request->only('name', 'email', 'password');
-    //         $user = User::create($data);
-    //         if ($user) {
-    //             return redirect()->route('auth.login')->with('success', 'User created   successfully');
-    //         } else {
-    //             return redirect()->back()->with('error', 'Failed to create user');
+    //         return redirect()->back()->withErrors($validator)->withInput();
+    //     }
+    //     $verificationToken = Str::random(64);
+    //     $user = User::create([
+    //         'name' => $request->name,
+    //         'email' => $request->email,
+    //         'password' => bcrypt($request->password),
+    //         'email_verification_token' => $verificationToken,
+    //     ]);
+    //     if ($user) {
+    //         $verificationUrl = route('email.verify', ['token' => $verificationToken]);
+    //         try {
+    //             Mail::to($user->email)->send(new VerificationMail($verificationUrl, $user->name));
+    //             return redirect()->route('auth.login')
+    //                 ->with('success', 'Registration successful! Please check your email to verify your account.');
+    //         } catch (\Exception $e) {
+    //             return redirect()->back()
+    //                 ->with('error', 'User created but failed to send verification email. Please contact support.');
     //         }
+    //     } else {
+    //         return redirect()->back()->with('error', 'Failed to create user');
     //     }
     // }
+
 
     public function doRegister(Request $request)
     {
@@ -53,49 +65,41 @@ class AuthController extends Controller
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
         }
-        $verificationToken = Str::random(64);
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => bcrypt($request->password),
-            'email_verification_token' => $verificationToken,
-        ]);
-        if ($user) {
+        DB::beginTransaction();
+        try {
+            $verificationToken = Str::random(64);
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => bcrypt($request->password),
+                'email_verification_token' => $verificationToken,
+            ]);
             $verificationUrl = route('email.verify', ['token' => $verificationToken]);
-            try {
-                Mail::to($user->email)->send(new VerificationMail($verificationUrl,$user->name));
-                return redirect()->route('auth.login')
-                    ->with('success', 'Registration successful! Please check your email to verify your account.');
-            } catch (\Exception $e) {
-                return redirect()->back()
-                    ->with('error', 'User created but failed to send verification email. Please contact support.');
-            }
-        } else {
-            return redirect()->back()->with('error', 'Failed to create user');
+            Mail::to($user->email)->send(new VerificationMail($verificationUrl, $user->name));
+            DB::commit();
+            return redirect()->route('auth.login')
+                ->with('success', 'Registration successful! Please check your email to verify your account.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()
+                ->with('error', 'Registration failed because email could not be sent. Please try again.');
         }
     }
     public function verifyEmail($token)
     {
         $user = User::where('email_verification_token', $token)->first();
-
         if (!$user) {
             return redirect()->route('auth.login')
                 ->with('error', 'Invalid verification link.');
         }
-
         if ($user->hasVerifiedEmail()) {
             return redirect()->route('auth.login')
                 ->with('info', 'Email already verified. Please login.');
         }
-
-        // Verify the email
         $user->email_verified_at = now();
         $user->email_verification_token = null;
         $user->save();
-
-        // Automatically log in the user
         Auth::login($user);
-
         return redirect()->route('task.index')
             ->with('success', 'Email verified successfully! Welcome aboard.');
     }
@@ -115,8 +119,6 @@ class AuthController extends Controller
         }
         if (auth()->attempt(['email' => $request->email, 'password' => $request->password])) {
             $user = auth()->user();
-            // dd($user);
-            // Check if email is verified
             if (!$user->hasVerifiedEmail()) {
                 auth()->logout();
                 return redirect()->back()
@@ -213,7 +215,8 @@ class AuthController extends Controller
         $email = session('password_reset_email');
         // dd($email);
         if (!$email) {
-            dd(1);return redirect()->route('password.reset')->with('error', 'Session expired. Please try again.');
+            dd(1);
+            return redirect()->route('password.reset')->with('error', 'Session expired. Please try again.');
         }
 
         $user = User::where('email', $email)->first();
