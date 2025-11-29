@@ -19,6 +19,7 @@ class AuthController extends Controller
     {
         return view('auth.login');
     }
+    // tst
     // public function doRegister(Request $request)
     // {
     //     dd($request->all());
